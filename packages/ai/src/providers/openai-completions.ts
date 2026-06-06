@@ -826,6 +826,7 @@ export const streamOpenAICompletions: StreamFunction<"openai-completions"> = (
 							if (!block) {
 								if (currentBlock?.type !== "toolCall") {
 									finishCurrentBlock(currentBlock);
+									currentBlock = undefined; // Reset currentBlock so next thinking block starts fresh
 								}
 								block = {
 									type: "toolCall",
