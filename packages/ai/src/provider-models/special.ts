@@ -62,6 +62,18 @@ const cursorDiscovery = once(() => import("../utils/discovery/cursor"));
 
 export interface ZaiModelManagerConfig {}
 
-export function zaiModelManagerOptions(_config: ZaiModelManagerConfig = {}): ModelManagerOptions<"anthropic-messages"> {
-	return { providerId: "zai" };
+export function zaiModelManagerOptions(_config: ZaiModelManagerConfig = {}): ModelManagerOptions<"openai-completions"> {
+	return {
+		providerId: "zai",
+		compat: {
+			reasoningContentField: "reasoning_content",
+			requiresReasoningContentForToolCalls: true,
+		},
+		extraBody: {
+			thinking: {
+				type: "enabled",
+				clear_thinking: false,
+			},
+		},
+	};
 }

@@ -1634,6 +1634,7 @@ export class TUI extends Container {
 			visibleOverlayComponents.length > 0,
 			overlayVisibilityReduced,
 			allowUnknownViewportMutation,
+			explicitViewportMutation,
 			this.#nativeScrollbackLiveRegionStart,
 			this.#nativeScrollbackCommitSafeEnd,
 		);
@@ -1868,6 +1869,7 @@ export class TUI extends Container {
 		hasVisibleOverlay: boolean,
 		overlayVisibilityReduced: boolean,
 		allowUnknownViewportMutation: boolean,
+		explicitViewportMutation: boolean,
 		liveRegionStart: number | undefined,
 		commitSafeEnd: number | undefined,
 	): RenderIntent {
@@ -2138,13 +2140,20 @@ export class TUI extends Container {
 				this.#markNativeScrollbackDirty();
 				return { kind: "deferredMutation" };
 			}
-			if (nativeViewportAtBottom === undefined && allowUnknownViewportMutation) {
+			if (
+				nativeViewportAtBottom === undefined &&
+				(explicitViewportMutation || (allowUnknownViewportMutation && this.#hasEagerEraseScrollbackRisk()))
+			) {
 				// Direct input can grow transient live UI (autocomplete/IME/editor
 				// wraps) while the previous frame already touched the viewport bottom.
 				// A diff append would `\r\n`-scroll those transient rows into native
 				// history, and a later popup shrink would duplicate the stable prefix at
 				// the scrollback seam. Repaint the live viewport in place instead; the
-				// dirty checkpoint owns native-history reconciliation.
+				// dirty checkpoint owns native-history reconciliation. Eager streaming
+				// mode alone does not trigger this path — on non-ED3-risk terminals
+				// (including Windows ConPTY) the diff emitter handles streaming appends
+				// correctly, and converting them to viewportRepaint causes visible
+				// glitches (stuck top half, overlapping renders).
 				this.#markNativeScrollbackDirty();
 				return { kind: "viewportRepaint" };
 			}

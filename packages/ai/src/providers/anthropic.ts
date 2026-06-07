@@ -2438,6 +2438,24 @@ function shouldReplayUnsignedThinking(model: Model<"anthropic-messages">): boole
 	return model.reasoning && !isAnthropicApiBaseUrl(baseUrl);
 }
 
+/**
+ * Check if a thinking signature is native to Anthropic (vs. a foreign OpenAI field name).
+ * Anthropic signatures are base64-encoded strings (typically 100+ chars, often starting with "EqQBCg").
+ * OpenAI signatures are field names like "reasoning_content", "reasoning", etc.
+ */
+function isNativeAnthropicSignature(signature: string | undefined): boolean {
+	if (!signature || signature.trim().length === 0) return false;
+	// Known OpenAI field names that should not be sent as Anthropic signatures
+	const openAIFieldNames = ["reasoning_content", "reasoning", "reasoning_text", "reasoning_details"];
+	if (openAIFieldNames.includes(signature)) return false;
+	// OpenAI Responses models store JSON-serialized reasoning items as signatures
+	// These are not valid Anthropic signatures and should be rejected
+	const trimmed = signature.trim();
+	if (trimmed.startsWith("{") || trimmed.startsWith("[")) return false;
+	// Any other signature is considered native to Anthropic
+	return true;
+}
+
 function buildToolResultBlock(model: Model<"anthropic-messages">, msg: ToolResultMessage): ContentBlockParam {
 	const block: ContentBlockParam = {
 		type: "tool_result",
@@ -2517,6 +2535,15 @@ export function convertAnthropicMessages(
 							});
 							continue;
 						}
+						// Only send native Anthropic signatures; convert foreign signatures to text
+						if (!isNativeAnthropicSignature(block.thinkingSignature)) {
+							if (block.thinking.trim().length === 0) continue;
+							blocks.push({
+								type: "text",
+								text: block.thinking.toWellFormed(),
+							});
+							continue;
+						}
 						blocks.push({
 							type: "thinking",
 							thinking: block.thinking,
@@ -2538,11 +2565,18 @@ export function convertAnthropicMessages(
 								text: block.thinking.toWellFormed(),
 							});
 						}
-					} else {
+					} else if (isNativeAnthropicSignature(block.thinkingSignature)) {
+						// Only send native Anthropic signatures
 						blocks.push({
 							type: "thinking",
 							thinking: block.thinking.toWellFormed(),
 							signature: block.thinkingSignature,
+						});
+					} else {
+						// Foreign signature - convert to text
+						blocks.push({
+							type: "text",
+							text: block.thinking.toWellFormed(),
 						});
 					}
 				} else if (block.type === "redactedThinking") {
