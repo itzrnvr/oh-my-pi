@@ -62428,9 +62428,9 @@
     "glm-5.1": {
       "id": "glm-5.1",
       "name": "GLM-5.1",
-      "api": "anthropic-messages",
+      "api": "openai-completions",
       "provider": "zai",
-      "baseUrl": "https://api.z.ai/api/anthropic",
+      "baseUrl": "https://api.z.ai/api/coding/paas/v4",
       "reasoning": true,
       "input": [
         "text"
@@ -62447,6 +62447,16 @@
         "mode": "budget",
         "minLevel": "minimal",
         "maxLevel": "xhigh"
+      },
+      "compat": {
+        "reasoningContentField": "reasoning_content",
+        "requiresReasoningContentForToolCalls": true
+      },
+      "extraBody": {
+        "thinking": {
+          "type": "enabled",
+          "clear_thinking": false
+        }
       }
     },
     "glm-5v-turbo": {
@@ -62468,40 +62478,6 @@
       },
       "contextWindow": 200000,
       "maxTokens": 131072,
-      "thinking": {
-        "mode": "budget",
-        "minLevel": "minimal",
-        "maxLevel": "xhigh"
-      }
-    },
-    "glm-5.1-openai": {
-      "id": "glm-5.1-openai",
-      "name": "GLM-5.1 (OpenAI)",
-      "api": "openai-completions",
-      "provider": "zai",
-      "baseUrl": "https://api.z.ai/api/coding/paas/v4",
-      "reasoning": true,
-      "input": [
-        "text"
-      ],
-      "cost": {
-        "input": 0,
-        "output": 0,
-        "cacheRead": 0,
-        "cacheWrite": 0
-      },
-      "contextWindow": 200000,
-      "maxTokens": 131072,
-      "compat": {
-        "reasoningContentField": "reasoning_content",
-        "requiresReasoningContentForToolCalls": true
-      },
-      "extraBody": {
-        "thinking": {
-          "type": "enabled",
-          "clear_thinking": false
-        }
-      },
       "thinking": {
         "mode": "budget",
         "minLevel": "minimal",
