@@ -1,4 +1,6 @@
 import type { Api, AssistantMessage, Message, Model, ToolCall, ToolResultMessage, UserMessage } from "../types";
+import type { OpenAICompat } from "@oh-my-pi/pi-catalog/types";
+import { isOfficialApiByUrl } from "./official-api";
 
 const enum ToolCallStatus {
 	/** A tool result has already been emitted for this tool call; later duplicates must be skipped. */
@@ -240,8 +242,15 @@ export function transformMessages<TApi extends Api>(
 			// `baseUrl` — a user who manually points `provider: "anthropic"` at
 			// a custom proxy via `models.yaml` will see signatures stripped, the
 			// conservative direction (degraded reasoning, not broken requests).
-			const isOfficialAnthropicSource = isAnthropicReplay && assistantMsg.provider === "anthropic";
-			const isOfficialAnthropicTarget = isAnthropicTarget && model.compat.officialEndpoint;
+			// Source-side detection now also honors the `isOfficialApi` flag
+			// stamped at message creation time (which itself derives from
+			// `baseUrl`). The `compat.officialEndpoint` model flag remains an
+			// explicit override. A `undefined` source flag is treated as 3p so
+			// sessions written before this field existed continue to work.
+			const isOfficialAnthropicSource =
+				isAnthropicReplay && (assistantMsg.isOfficialApi === true || assistantMsg.provider === "anthropic");
+			const isOfficialAnthropicTarget =
+				isAnthropicTarget && (model.compat.officialEndpoint === true || isOfficialApiByUrl(model.baseUrl));
 			const officialAnthropicInvolved = isOfficialAnthropicSource || isOfficialAnthropicTarget;
 			// Compatible Anthropic-messages reasoning targets that accept
 			// unsigned thinking natively (Z.AI, DeepSeek, the generic
@@ -323,10 +332,25 @@ export function transformMessages<TApi extends Api>(
 					// Skip empty thinking blocks, convert others to plain text
 					if (!sanitized.thinking || sanitized.thinking.trim() === "") return [];
 					if (isSameModel) return sanitized;
-					return {
-						type: "text" as const,
-						text: sanitized.thinking,
-					};
+					// legacy_style override: forces old OMP text-demotion behavior
+					if (model.api === "openai-completions") {
+						const openaiCompat = model.compat as OpenAICompat | undefined;
+						if (openaiCompat?.legacy_style === true) {
+							return { type: "text" as const, text: sanitized.thinking };
+						}
+					}
+					// Official API on either end → demote to text
+					const sourceOfficial = assistantMsg.isOfficialApi === true;
+					const targetOfficial = isOfficialApiByUrl(model.baseUrl);
+					if (sourceOfficial || targetOfficial) {
+						return {
+							type: "text" as const,
+							text: sanitized.thinking,
+						};
+					}
+					// 3p → 3p: preserve reasoning as native block, strip signature
+					// for cross-3p wire-format compatibility
+					return { ...sanitized, thinkingSignature: undefined };
 				}
 
 				if (block.type === "redactedThinking") {

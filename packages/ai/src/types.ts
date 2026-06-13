@@ -509,6 +509,16 @@ export interface AssistantMessage {
 	provider: Provider;
 	model: string;
 	contextSnapshot?: ContextSnapshot;
+	/**
+	 * True iff this assistant turn was produced by an "official" API endpoint
+	 * (api.openai.com or api.anthropic.com). Stamped at construction time so
+	 * downstream `transformMessages` can decide whether to preserve the
+	 * encrypted/signed thinking block or downgrade it to plain text.
+	 *
+	 * `undefined` is treated as "third-party" by `transformMessages` so
+	 * sessions written before this field existed continue to work.
+	 */
+	isOfficialApi?: boolean;
 	responseId?: string; // Provider-specific response/message identifier when the upstream API exposes one
 	/**
 	 * Name of the upstream provider an aggregator routed this request to, as

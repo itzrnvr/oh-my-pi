@@ -300,11 +300,11 @@ describe("Anthropic prior-turn thinking preservation (#2257, #2265)", () => {
 		expect(thinking?.signature).toBe("");
 	});
 
-	it("does not promote prior unsigned thinking from non-anthropic sources to thinking blocks", () => {
-		// Cross-API replay: prior turn came from OpenAI-responses with no
-		// Anthropic signature. The all-or-none rule scope is per-API; we must
-		// not invent thinking blocks for a turn whose source can't sign them —
-		// the existing cross-API text demotion is the right behavior.
+	it("demotes prior thinking to text when source is an official API (isOfficialApi: true)", () => {
+		// Cross-API replay where the source is an official OpenAI API
+		// (isOfficialApi: true). The new 2-path rule demotes thinking to text
+		// whenever either end is an official API — official → 3p preserves the
+		// reasoning text but strips the encrypted signature.
 		const target = makeAnthropicModel();
 		const messages: Message[] = [
 			makeUser("Summarize README"),
@@ -317,6 +317,7 @@ describe("Anthropic prior-turn thinking preservation (#2257, #2265)", () => {
 					api: "openai-responses",
 					provider: "openai",
 					model: "o1-preview",
+					isOfficialApi: true,
 				} as Partial<AssistantMessage>,
 			),
 			toolResult("toolu_prior", "README body"),
