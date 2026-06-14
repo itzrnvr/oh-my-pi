@@ -1782,14 +1782,24 @@ export function convertMessages(
 					// like opencode-kimi-with-thinking and DeepSeek demand the exact
 					// configured `reasoningContentField` instead, so honor that here
 					// rather than echoing the upstream field name.
+					//
+					// When signature is undefined (e.g. after transformMessages strips
+					// signatures for cross-3p preservation), fall back to the configured
+					// `reasoningContentField` so the reasoning content is still sent on
+					// the wire. Without this fallback, prior-turn reasoning is silently
+					// dropped whenever a 3p target is used and the source signature
+					// got cleared (#2265).
 					const signature = nonEmptyThinkingBlocks[0].thinkingSignature;
+					const recognizedFields = ["reasoning_content", "reasoning", "reasoning_text"];
+					const fallbackField = compat.reasoningContentField ?? "reasoning_content";
 					const wireField =
 						compat.allowsSyntheticReasoningContentForToolCalls &&
-						(signature === "reasoning_content" || signature === "reasoning" || signature === "reasoning_text")
+						signature &&
+						recognizedFields.includes(signature)
 							? signature
-							: signature === "reasoning_content" || signature === "reasoning" || signature === "reasoning_text"
-								? (compat.reasoningContentField ?? "reasoning_content")
-								: undefined;
+							: signature && recognizedFields.includes(signature)
+								? fallbackField
+								: fallbackField;
 					if (wireField) {
 						assistantMsg[wireField] = nonEmptyThinkingBlocks.map(b => b.thinking).join("\n");
 					}
