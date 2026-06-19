@@ -1,0 +1,916 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OMP API Trace Viewer</title>
+<style>
+:root {
+  --bg: #0d1117;
+  --bg-card: #161b22;
+  --bg-hover: #1c2128;
+  --bg-expanded: #1a1f27;
+  --border: #30363d;
+  --text: #e6edf3;
+  --text-muted: #8b949e;
+  --text-dim: #6e7681;
+  --accent: #58a6ff;
+  --accent-dim: #1f6feb;
+  --green: #3fb950;
+  --yellow: #d29922;
+  --red: #f85149;
+  --orange: #db6d28;
+  --purple: #bc8cff;
+  --cyan: #39d2c0;
+  --font-mono: 'SF Mono', 'Cascadia Code', 'Fira Code', Consolas, monospace;
+  --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+  --radius: 8px;
+  --radius-sm: 6px;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: var(--font-sans);
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.5;
+  min-height: 100vh;
+}
+/* ── Header ── */
+.header {
+  position: sticky; top: 0; z-index: 100;
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+  padding: 12px 24px;
+  display: flex; align-items: center; gap: 16px;
+}
+.header h1 {
+  font-size: 16px; font-weight: 600;
+  display: flex; align-items: center; gap: 8px;
+}
+.header h1 .logo { font-size: 20px; }
+.header-actions { margin-left: auto; display: flex; gap: 8px; align-items: center; }
+.btn {
+  background: var(--bg-card); border: 1px solid var(--border);
+  color: var(--text); padding: 6px 14px; border-radius: var(--radius-sm);
+  font-size: 13px; cursor: pointer; font-family: var(--font-sans);
+  display: flex; align-items: center; gap: 6px; transition: all 0.15s;
+}
+.btn:hover { background: var(--bg-hover); border-color: var(--text-dim); }
+.btn.primary { background: var(--accent-dim); border-color: var(--accent); }
+.btn.primary:hover { background: var(--accent); color: #fff; }
+.btn.live-active { background: rgba(63,185,80,0.15); border-color: var(--green); color: var(--green); animation: pulse 2s infinite; }
+@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.7; } }
+.btn.danger { border-color: var(--red); color: var(--red); }
+.btn.danger:hover { background: var(--red); color: #fff; }
+.badge {
+  background: var(--accent-dim); color: var(--accent);
+  padding: 2px 8px; border-radius: 10px; font-size: 12px; font-weight: 500;
+}
+/* ── Drop Zone ── */
+.drop-zone {
+  border: 2px dashed var(--border); border-radius: var(--radius);
+  padding: 60px 24px; text-align: center; margin: 24px;
+  transition: all 0.2s; cursor: pointer;
+}
+.drop-zone.drag-over { border-color: var(--accent); background: rgba(88,166,255,0.05); }
+.drop-zone h2 { font-size: 18px; margin-bottom: 8px; font-weight: 500; }
+.drop-zone p { color: var(--text-muted); font-size: 14px; }
+.drop-zone .or { color: var(--text-dim); margin: 16px 0; font-size: 13px; }
+/* ── Trace List ── */
+.trace-list { padding: 0 24px 24px; }
+.trace-card {
+  background: var(--bg-card); border: 1px solid var(--border);
+  border-radius: var(--radius); margin-bottom: 8px;
+  overflow: hidden; transition: border-color 0.15s;
+}
+.trace-card:hover { border-color: var(--text-dim); }
+.trace-header {
+  padding: 12px 16px; cursor: pointer;
+  display: flex; align-items: center; gap: 12px;
+  user-select: none;
+}
+.trace-header:hover { background: var(--bg-hover); }
+.method-badge {
+  font-family: var(--font-mono); font-size: 12px; font-weight: 600;
+  padding: 2px 8px; border-radius: 4px; min-width: 50px; text-align: center;
+}
+.method-POST { background: rgba(59,130,246,0.15); color: #60a5fa; }
+.method-GET { background: rgba(52,211,153,0.15); color: #34d399; }
+.method-PUT { background: rgba(251,191,36,0.15); color: #fbbf24; }
+.method-DELETE { background: rgba(248,113,113,0.15); color: #f87171; }
+.trace-url {
+  font-family: var(--font-mono); font-size: 13px; color: var(--text-muted);
+  flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.trace-meta {
+  display: flex; align-items: center; gap: 12px; font-size: 12px; color: var(--text-dim);
+}
+.trace-meta .status { font-weight: 600; }
+.trace-meta .status.ok { color: var(--green); }
+.trace-meta .status.err { color: var(--red); }
+.chevron {
+  color: var(--text-dim); transition: transform 0.2s;
+  font-size: 14px; flex-shrink: 0;
+}
+.trace-card.expanded .chevron { transform: rotate(90deg); }
+/* ── Trace Body ── */
+.trace-body { display: none; border-top: 1px solid var(--border); }
+.trace-card.expanded .trace-body { display: block; }
+.trace-section { border-bottom: 1px solid var(--border); }
+.trace-section:last-child { border-bottom: none; }
+.section-header {
+  padding: 10px 16px; cursor: pointer;
+  display: flex; align-items: center; gap: 8px;
+  font-size: 13px; font-weight: 500; color: var(--text-muted);
+  user-select: none;
+}
+.section-header:hover { background: var(--bg-hover); }
+.section-header .icon { font-size: 14px; width: 18px; text-align: center; }
+.section-header .count {
+  background: var(--bg); padding: 1px 6px; border-radius: 4px;
+  font-size: 11px; color: var(--text-dim); font-family: var(--font-mono);
+}
+.section-header .copy-btn {
+  margin-left: auto; background: none; border: none;
+  color: var(--text-dim); cursor: pointer; padding: 4px;
+  font-size: 13px; opacity: 0; transition: opacity 0.15s;
+}
+.section-header:hover .copy-btn { opacity: 1; }
+.section-header .copy-btn:hover { color: var(--accent); }
+.section-content { display: none; padding: 0 16px 12px; }
+.trace-section.open .section-content { display: block; }
+.trace-section.open .section-header { color: var(--text); }
+/* ── Code Blocks ── */
+.code-block {
+  background: var(--bg); border: 1px solid var(--border);
+  border-radius: var(--radius-sm); padding: 12px;
+  font-family: var(--font-mono); font-size: 12px;
+  line-height: 1.6; overflow-x: auto; white-space: pre-wrap;
+  word-break: break-word; max-height: 500px; overflow-y: auto;
+  position: relative;
+}
+.code-block.expanded { max-height: none; }
+.code-block .expand-btn {
+  position: sticky; bottom: 0; left: 0; right: 0;
+  background: linear-gradient(transparent, var(--bg) 40%);
+  padding: 24px 0 8px; text-align: center;
+}
+.code-block .expand-btn .btn { display: inline-flex; font-size: 12px; }
+/* ── Syntax Colors ── */
+.json-key { color: var(--accent); }
+.json-string { color: var(--green); }
+.json-number { color: var(--orange); }
+.json-bool { color: var(--purple); }
+.json-null { color: var(--red); }
+.json-bracket { color: var(--text-dim); }
+.sse-event { color: var(--cyan); font-weight: 600; }
+.sse-data { color: var(--text-muted); }
+/* ── Thinking Block Highlight ── */
+.thinking-block {
+  background: rgba(188,140,255,0.08); border-left: 3px solid var(--purple);
+  padding: 8px 12px; border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  margin: 4px 0;
+}
+.thinking-label { color: var(--purple); font-size: 11px; font-weight: 600; text-transform: uppercase; }
+/* ── Message Cards ── */
+.msg-card {
+  background: var(--bg); border: 1px solid var(--border);
+  border-radius: var(--radius-sm); margin-bottom: 6px; overflow: hidden;
+}
+.msg-role {
+  padding: 6px 10px; font-size: 11px; font-weight: 600;
+  text-transform: uppercase; letter-spacing: 0.5px;
+  display: flex; align-items: center; gap: 6px;
+}
+.msg-role.user { background: rgba(59,130,246,0.1); color: #60a5fa; }
+.msg-role.assistant { background: rgba(52,211,153,0.1); color: #34d399; }
+.msg-role.system { background: rgba(251,191,36,0.1); color: #fbbf24; }
+.msg-role.tool { background: rgba(188,140,255,0.1); color: var(--purple); }
+.msg-content { padding: 8px 10px; font-size: 13px; }
+.msg-content pre {
+  font-family: var(--font-mono); font-size: 12px;
+  white-space: pre-wrap; word-break: break-word;
+  color: var(--text-muted);
+}
+/* ── Toast ── */
+.toast {
+  position: fixed; bottom: 24px; right: 24px;
+  background: var(--bg-card); border: 1px solid var(--green);
+  color: var(--green); padding: 10px 18px; border-radius: var(--radius-sm);
+  font-size: 13px; z-index: 1000; opacity: 0;
+  transform: translateY(10px); transition: all 0.3s;
+  pointer-events: none;
+}
+.toast.show { opacity: 1; transform: translateY(0); }
+/* ── Search ── */
+.search-bar {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 16px; border-bottom: 1px solid var(--border);
+}
+.search-bar input {
+  background: var(--bg); border: 1px solid var(--border);
+  color: var(--text); padding: 6px 12px; border-radius: var(--radius-sm);
+  font-size: 13px; flex: 1; font-family: var(--font-sans);
+}
+.search-bar input:focus { outline: none; border-color: var(--accent); }
+.search-bar input::placeholder { color: var(--text-dim); }
+/* ── Stats Bar ── */
+.stats-bar {
+  display: flex; align-items: center; gap: 16px;
+  padding: 8px 24px; border-bottom: 1px solid var(--border);
+  font-size: 12px; color: var(--text-dim);
+}
+.stats-bar .stat { display: flex; align-items: center; gap: 4px; }
+.stats-bar .stat .dot { width: 6px; height: 6px; border-radius: 50%; }
+.stats-bar .dot.green { background: var(--green); }
+.stats-bar .dot.red { background: var(--red); }
+.stats-bar .dot.yellow { background: var(--yellow); }
+/* ── Scrollbar ── */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--text-dim); }
+/* ── Empty State ── */
+.empty-state {
+  text-align: center; padding: 80px 24px; color: var(--text-dim);
+}
+.empty-state .icon { font-size: 48px; margin-bottom: 16px; }
+/* ── Tab Bar ── */
+.tab-bar {
+  display: flex; border-bottom: 1px solid var(--border);
+  padding: 0 16px;
+}
+.tab {
+  padding: 8px 16px; font-size: 13px; color: var(--text-dim);
+  cursor: pointer; border-bottom: 2px solid transparent;
+  transition: all 0.15s;
+}
+.tab:hover { color: var(--text); }
+.tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+/* ── Responsive ── */
+@media (max-width: 768px) {
+  .header { padding: 10px 16px; }
+  .trace-list { padding: 0 16px 16px; }
+  .stats-bar { padding: 8px 16px; flex-wrap: wrap; }
+}
+</style>
+</head>
+<body>
+<!-- Header -->
+<div class="header">
+  <h1><span class="logo">📡</span> OMP API Trace Viewer</h1>
+  <span id="traceCount" class="badge" style="display:none">0 traces</span>
+  <div class="header-actions">
+    <button class="btn" id="liveBtn" onclick="toggleLiveMode()" title="Connect to trace server for real-time updates">
+      ▶ Live
+    </button>
+    <button class="btn" onclick="document.getElementById('fileInput').click()">
+      📁 Load Files
+    </button>
+    <button class="btn" onclick="loadFromClipboard()">
+      📋 Paste JSON
+    </button>
+    <button class="btn" id="copyAllBtn" style="display:none" onclick="copyAllTraces()">
+      📤 Copy All
+    </button>
+    <button class="btn danger" id="clearBtn" style="display:none" onclick="clearAll()">
+      ✕ Clear
+    </button>
+    <input type="file" id="fileInput" multiple accept=".json,.log,.txt" style="display:none" onchange="handleFiles(this.files)">
+  </div>
+</div>
+
+<!-- Drop Zone (shown when no traces loaded) -->
+<div id="dropZone" class="drop-zone">
+  <h2>Drop trace files here</h2>
+  <p>Load <code>rr-session-*.json</code> files from <code>PI_REQ_DEBUG=1</code></p>
+  <div class="or">— or —</div>
+  <button class="btn primary" onclick="document.getElementById('fileInput').click()">
+    📁 Browse Files
+  </button>
+  <p style="margin-top:16px; font-size:12px; color:var(--text-dim)">
+    You can also paste JSON directly with Ctrl+V
+  </p>
+</div>
+
+<!-- Stats Bar (shown when traces loaded) -->
+<div id="statsBar" class="stats-bar" style="display:none">
+  <div class="stat"><span class="dot green"></span> <span id="statOk">0</span> OK</div>
+  <div class="stat"><span class="dot red"></span> <span id="statErr">0</span> Errors</div>
+  <div class="stat"><span class="dot yellow"></span> <span id="statPending">0</span> Pending</div>
+  <div class="stat" style="margin-left:auto">Total: <span id="statTotal">0</span> requests</div>
+</div>
+
+<!-- Search Bar -->
+<div id="searchBar" class="search-bar" style="display:none">
+  <span style="color:var(--text-dim)">🔍</span>
+  <input type="text" id="searchInput" placeholder="Filter by URL, method, model, or content..." oninput="filterTraces()">
+</div>
+
+<!-- Trace List -->
+<div id="traceList" class="trace-list"></div>
+
+<!-- Toast -->
+<div id="toast" class="toast"></div>
+
+<script>
+// ── State ──
+let traces = [];
+let nextId = 0;
+
+// ── Drop Zone ──
+const dropZone = document.getElementById('dropZone');
+const traceListEl = document.getElementById('traceList');
+
+document.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('drag-over'); });
+document.addEventListener('dragleave', e => { if (!e.relatedTarget) dropZone.classList.remove('drag-over'); });
+document.addEventListener('drop', e => {
+  e.preventDefault();
+  dropZone.classList.remove('drag-over');
+  if (e.dataTransfer.files.length) handleFiles(e.dataTransfer.files);
+});
+
+// ── Paste Handler ──
+document.addEventListener('paste', e => {
+  const text = e.clipboardData.getData('text');
+  if (!text) return;
+  try {
+    const data = JSON.parse(text);
+    if (Array.isArray(data)) {
+      data.forEach(item => addTrace(item));
+    } else {
+      addTrace(data);
+    }
+    showToast(`Loaded ${Array.isArray(data) ? data.length : 1} trace(s) from clipboard`);
+  } catch {
+    // Try parsing as multiple JSON objects (one per line)
+    const lines = text.trim().split('\n').filter(l => l.trim());
+    let loaded = 0;
+    for (const line of lines) {
+      try {
+        addTrace(JSON.parse(line));
+        loaded++;
+      } catch {}
+    }
+    if (loaded > 0) {
+      showToast(`Loaded ${loaded} trace(s) from clipboard`);
+    }
+  }
+});
+
+// ── File Handling ──
+async function handleFiles(files) {
+  let loaded = 0;
+  for (const file of files) {
+    const text = await file.text();
+    if (file.name.endsWith('.res.log')) {
+      // Response log - try to find matching request
+      addResponseLog(text, file.name);
+      loaded++;
+      continue;
+    }
+    try {
+      const data = JSON.parse(text);
+      if (Array.isArray(data)) {
+        data.forEach(item => addTrace(item));
+        loaded += data.length;
+      } else {
+        addTrace(data);
+        loaded++;
+      }
+    } catch {
+      // Try as raw response log
+      addResponseLog(text, file.name);
+      loaded++;
+    }
+  }
+  showToast(`Loaded ${loaded} trace(s) from files`);
+}
+
+function addResponseLog(text, filename) {
+  // Parse raw HTTP response
+  const lines = text.split(/\r?\n/);
+  let statusLine = '';
+  let headerEnd = -1;
+  for (let i = 0; i < lines.length; i++) {
+    if (i === 0) { statusLine = lines[i]; continue; }
+    if (lines[i].trim() === '') { headerEnd = i; break; }
+  }
+  const body = headerEnd >= 0 ? lines.slice(headerEnd + 1).join('\n') : '';
+
+  // Try to find matching request trace
+  const match = filename.match(/rr-session-(\d+)/);
+  const sessionId = match ? parseInt(match[1]) : null;
+  const existing = sessionId ? traces.find(t => t.sessionId === sessionId && !t.response) : null;
+
+  if (existing) {
+    existing.response = {
+      statusLine,
+      status: parseInt(statusLine.match(/\s(\d+)\s/)?.[1] || '0'),
+      body: body.trim(),
+    };
+    renderTraces();
+  } else {
+    addTrace({ id: sessionId, response: { statusLine, status: parseInt(statusLine.match(/\s(\d+)\s/)?.[1] || '0'), body: body.trim() } });
+  }
+}
+
+// ── Add Trace ──
+function isLlmApiRequest(url) {
+  if (!url) return false;
+  const u = url.toLowerCase();
+  // Anthropic messages API
+  if (u.includes('/v1/messages')) return true;
+  // OpenAI chat completions
+  if (u.includes('/chat/completions')) return true;
+  // OpenAI responses API
+  if (u.includes('/v1/responses')) return true;
+  // OpenAI completions (legacy)
+  if (u.includes('/v1/completions') && !u.includes('/chat/')) return true;
+  // Google Gemini
+  if (u.includes('/v1beta/') || u.includes('/v1/')) {
+    if (u.includes(':generateContent') || u.includes(':streamGenerateContent')) return true;
+  }
+  return false;
+}
+
+function addTrace(data) {
+  const url = data.url || '';
+
+  // Only show LLM API requests (skip MCP, auth, health checks, etc.)
+  if (!isLlmApiRequest(url)) return;
+
+  const trace = {
+    id: nextId++,
+    sessionId: data.id || null,
+    method: data.method || 'POST',
+    url: url,
+    headers: data.headers || {},
+    body: data.body || data.bodyText || null,
+    bodyBase64: data.bodyBase64 || null,
+    bodyUnavailable: data.bodyUnavailable || null,
+    protocol: data.protocol || 'http',
+    response: data.response || null,
+    timestamp: data.timestamp || Date.now(),
+  };
+
+  // Parse body if it's a string
+  if (typeof trace.body === 'string') {
+    try { trace.body = JSON.parse(trace.body); } catch {}
+  }
+
+  traces.push(trace);
+  renderTraces();
+}
+
+// ── Render ──
+function renderTraces() {
+  const hasTraces = traces.length > 0;
+  dropZone.style.display = hasTraces ? 'none' : 'block';
+  document.getElementById('statsBar').style.display = hasTraces ? 'flex' : 'none';
+  document.getElementById('searchBar').style.display = hasTraces ? 'block' : 'none';
+  document.getElementById('copyAllBtn').style.display = hasTraces ? 'flex' : 'none';
+  document.getElementById('clearBtn').style.display = hasTraces ? 'flex' : 'none';
+  document.getElementById('traceCount').style.display = hasTraces ? 'inline' : 'none';
+  document.getElementById('traceCount').textContent = `${traces.length} trace${traces.length !== 1 ? 's' : ''}`;
+
+  updateStats();
+  filterTraces();
+}
+
+function updateStats() {
+  const ok = traces.filter(t => t.response && t.response.status >= 200 && t.response.status < 400).length;
+  const err = traces.filter(t => t.response && t.response.status >= 400).length;
+  const pending = traces.filter(t => !t.response).length;
+  document.getElementById('statOk').textContent = ok;
+  document.getElementById('statErr').textContent = err;
+  document.getElementById('statPending').textContent = pending;
+  document.getElementById('statTotal').textContent = traces.length;
+}
+
+function filterTraces() {
+  const query = (document.getElementById('searchInput').value || '').toLowerCase();
+  const filtered = traces.filter(t => {
+    if (!query) return true;
+    return (
+      t.url.toLowerCase().includes(query) ||
+      t.method.toLowerCase().includes(query) ||
+      JSON.stringify(t.body || {}).toLowerCase().includes(query)
+    );
+  });
+  renderTraceList(filtered);
+}
+
+function renderTraceList(list) {
+  traceListEl.innerHTML = list.map((t, i) => `
+    <div class="trace-card" id="trace-${t.id}">
+      <div class="trace-header" onclick="toggleTrace(${t.id})">
+        <span class="chevron">▶</span>
+        <span class="method-badge method-${t.method}">${t.method}</span>
+        <span class="trace-url">${escapeHtml(shortenUrl(t.url))}</span>
+        <div class="trace-meta">
+          ${t.response ? `<span class="status ${t.response.status < 400 ? 'ok' : 'err'}">${t.response.status}</span>` : '<span class="status" style="color:var(--yellow)">pending</span>'}
+          ${t.body?.model ? `<span>${t.body.model}</span>` : ''}
+          <span>${formatTime(t.timestamp)}</span>
+        </div>
+      </div>
+      <div class="trace-body">
+        ${renderTraceSections(t)}
+      </div>
+    </div>
+  `).join('');
+}
+
+function renderTraceSections(trace) {
+  const sections = [];
+
+  // Request Overview
+  sections.push({
+    id: `overview-${trace.id}`,
+    icon: '📋',
+    label: 'Request Overview',
+    content: renderOverview(trace),
+  });
+
+  // Request Headers
+  if (trace.headers && Object.keys(trace.headers).length > 0) {
+    const headerCount = Object.keys(trace.headers).length;
+    sections.push({
+      id: `headers-${trace.id}`,
+      icon: '📑',
+      label: 'Request Headers',
+      count: headerCount,
+      copyable: JSON.stringify(trace.headers, null, 2),
+      content: `<div class="code-block">${syntaxHighlight(JSON.stringify(trace.headers, null, 2))}</div>`,
+    });
+  }
+
+  // Request Body - Messages
+  if (trace.body?.messages) {
+    sections.push({
+      id: `messages-${trace.id}`,
+      icon: '💬',
+      label: 'Messages',
+      count: trace.body.messages.length,
+      copyable: JSON.stringify(trace.body.messages, null, 2),
+      content: renderMessages(trace.body.messages),
+    });
+  }
+
+  // Request Body - Tools
+  if (trace.body?.tools?.length > 0) {
+    sections.push({
+      id: `tools-${trace.id}`,
+      icon: '🔧',
+      label: 'Tools',
+      count: trace.body.tools.length,
+      copyable: JSON.stringify(trace.body.tools, null, 2),
+      content: `<div class="code-block">${syntaxHighlight(JSON.stringify(trace.body.tools, null, 2))}</div>`,
+    });
+  }
+
+  // Request Body - Full
+  if (trace.body) {
+    const bodyStr = JSON.stringify(trace.body, null, 2);
+    const bodyLen = bodyStr.length;
+    sections.push({
+      id: `body-${trace.id}`,
+      icon: '📦',
+      label: 'Full Request Body',
+      count: `${(bodyLen / 1024).toFixed(1)}KB`,
+      copyable: bodyStr,
+      content: `<div class="code-block" id="body-code-${trace.id}">${syntaxHighlight(bodyStr)}</div>`,
+    });
+  }
+
+  // Response
+  if (trace.response) {
+    sections.push({
+      id: `response-${trace.id}`,
+      icon: '📨',
+      label: 'Response',
+      copyable: trace.response.body,
+      content: renderResponse(trace.response),
+    });
+  }
+
+  return sections.map(s => `
+    <div class="trace-section" id="${s.id}">
+      <div class="section-header" onclick="toggleSection('${s.id}')">
+        <span class="icon">${s.icon}</span>
+        <span>${s.label}</span>
+        ${s.count !== undefined ? `<span class="count">${s.count}</span>` : ''}
+        ${s.copyable ? `<button class="copy-btn" onclick="event.stopPropagation();copyToClipboard('${s.id}','${btoa(unescape(encodeURIComponent(s.copyable)))}')">📋 Copy</button>` : ''}
+      </div>
+      <div class="section-content">${s.content}</div>
+    </div>
+  `).join('');
+}
+
+function renderOverview(trace) {
+  const body = trace.body || {};
+  const rows = [
+    ['URL', trace.url],
+    ['Method', trace.method],
+    ['Protocol', trace.protocol],
+    ['Model', body.model || '—'],
+    ['Stream', body.stream !== undefined ? String(body.stream) : '—'],
+    ['Max Tokens', body.max_tokens || body.max_output_tokens || '—'],
+    ['Temperature', body.temperature ?? '—'],
+  ];
+  if (body.thinking) rows.push(['Thinking', JSON.stringify(body.thinking)]);
+  if (body.reasoning_effort) rows.push(['Reasoning Effort', body.reasoning_effort]);
+  if (body.reasoning) rows.push(['Reasoning', JSON.stringify(body.reasoning)]);
+
+  // Count message types
+  if (body.messages) {
+    const roles = {};
+    body.messages.forEach(m => { roles[m.role] = (roles[m.role] || 0) + 1; });
+    rows.push(['Messages', Object.entries(roles).map(([r, c]) => `${r}:${c}`).join(', ')]);
+  }
+  if (body.tools?.length) rows.push(['Tools', `${body.tools.length} tools`]);
+
+  return `<div class="code-block" style="max-height:300px">${rows.map(([k, v]) =>
+    `<div style="display:flex;gap:12px;padding:2px 0"><span class="json-key" style="min-width:120px;text-align:right;flex-shrink:0">${k}:</span><span style="word-break:break-all">${escapeHtml(String(v))}</span></div>`
+  ).join('')}</div>`;
+}
+
+function renderMessages(messages) {
+  return messages.map((msg, i) => {
+    const role = msg.role || 'unknown';
+    const content = extractMessageContent(msg);
+    const hasThinking = hasThinkingBlocks(msg);
+    return `
+      <div class="msg-card">
+        <div class="msg-role ${role}">
+          ${roleIcon(role)} ${role}
+          ${msg.tool_call_id ? `<span style="color:var(--text-dim);font-size:10px">${msg.tool_call_id}</span>` : ''}
+          ${msg.name ? `<span style="color:var(--text-dim);font-size:10px">${msg.name}</span>` : ''}
+          <span style="margin-left:auto;color:var(--text-dim);font-size:10px">#${i}</span>
+        </div>
+        ${hasThinking ? renderThinkingBlocks(msg) : ''}
+        <div class="msg-content"><pre>${escapeHtml(content)}</pre></div>
+      </div>
+    `;
+  }).join('');
+}
+
+function extractMessageContent(msg) {
+  if (typeof msg.content === 'string') return msg.content;
+  if (Array.isArray(msg.content)) {
+    return msg.content
+      .filter(b => b.type === 'text')
+      .map(b => b.text)
+      .join('\n');
+  }
+  return JSON.stringify(msg.content, null, 2);
+}
+
+function hasThinkingBlocks(msg) {
+  if (!Array.isArray(msg.content)) return false;
+  return msg.content.some(b => b.type === 'thinking' || b.type === 'redacted_thinking');
+}
+
+function renderThinkingBlocks(msg) {
+  if (!Array.isArray(msg.content)) return '';
+  return msg.content
+    .filter(b => b.type === 'thinking' || b.type === 'redacted_thinking')
+    .map(b => {
+      if (b.type === 'redacted_thinking') {
+        return `<div class="thinking-block"><span class="thinking-label">🔒 Redacted Thinking</span><pre style="color:var(--text-dim);font-size:11px">${escapeHtml(b.data?.slice(0, 200) || '—')}</pre></div>`;
+      }
+      return `<div class="thinking-block"><span class="thinking-label">💭 Thinking</span><pre style="font-size:12px">${escapeHtml(b.thinking || '—')}</pre></div>`;
+    }).join('');
+}
+
+function renderResponse(response) {
+  if (!response.body) return '<div style="color:var(--text-dim);padding:12px">No response body</div>';
+
+  // Try to parse SSE events
+  if (response.body.includes('event:') || response.body.includes('data:')) {
+    return renderSSE(response.body);
+  }
+
+  // Try JSON
+  try {
+    const json = JSON.parse(response.body);
+    return `<div class="code-block">${syntaxHighlight(JSON.stringify(json, null, 2))}</div>`;
+  } catch {}
+
+  return `<div class="code-block">${escapeHtml(response.body)}</div>`;
+}
+
+function renderSSE(body) {
+  const events = parseSSE(body);
+  if (events.length === 0) return `<div class="code-block">${escapeHtml(body)}</div>`;
+
+  return events.map((evt, i) => {
+    let dataStr = '';
+    try {
+      const parsed = JSON.parse(evt.data);
+      dataStr = syntaxHighlight(JSON.stringify(parsed, null, 2));
+    } catch {
+      dataStr = escapeHtml(evt.data);
+    }
+    return `
+      <div class="msg-card" style="margin-bottom:4px">
+        <div class="msg-role" style="background:rgba(57,210,192,0.1);color:var(--cyan);font-size:10px">
+          ${evt.event || 'message'} <span style="margin-left:auto;color:var(--text-dim)">event #${i}</span>
+        </div>
+        <div class="msg-content"><pre style="font-size:11px">${dataStr}</pre></div>
+      </div>
+    `;
+  }).join('');
+}
+
+function parseSSE(text) {
+  const events = [];
+  let current = { event: '', data: '' };
+  for (const line of text.split('\n')) {
+    if (line.startsWith('event: ')) {
+      current.event = line.slice(7).trim();
+    } else if (line.startsWith('data: ')) {
+      current.data += (current.data ? '\n' : '') + line.slice(6);
+    } else if (line.trim() === '' && (current.event || current.data)) {
+      events.push({ ...current });
+      current = { event: '', data: '' };
+    }
+  }
+  if (current.event || current.data) events.push(current);
+  return events;
+}
+
+// ── Toggle ──
+function toggleTrace(id) {
+  const el = document.getElementById(`trace-${id}`);
+  if (el) el.classList.toggle('expanded');
+}
+
+function toggleSection(id) {
+  const el = document.getElementById(id);
+  if (el) el.classList.toggle('open');
+}
+
+// ── Copy ──
+function copyToClipboard(sectionId, encodedData) {
+  const text = decodeURIComponent(escape(atob(encodedData)));
+  navigator.clipboard.writeText(text).then(() => showToast('Copied to clipboard'));
+}
+
+function copyAllTraces() {
+  const data = JSON.stringify(traces, null, 2);
+  navigator.clipboard.writeText(data).then(() => showToast(`Copied ${traces.length} traces to clipboard`));
+}
+
+async function loadFromClipboard() {
+  try {
+    const text = await navigator.clipboard.readText();
+    const data = JSON.parse(text);
+    if (Array.isArray(data)) {
+      data.forEach(item => addTrace(item));
+      showToast(`Loaded ${data.length} trace(s) from clipboard`);
+    } else {
+      addTrace(data);
+      showToast('Loaded 1 trace from clipboard');
+    }
+  } catch {
+    showToast('No valid JSON found in clipboard');
+  }
+}
+
+// ── Utilities ──
+function clearAll() {
+  traces = [];
+  nextId = 0;
+  renderTraces();
+}
+
+function shortenUrl(url) {
+  try {
+    const u = new URL(url);
+    return u.pathname + u.search;
+  } catch {
+    return url;
+  }
+}
+
+function formatTime(ts) {
+  if (!ts) return '';
+  const d = new Date(ts);
+  // Convert to IST (UTC+5:30)
+  const istOffset = 5.5 * 60 * 60 * 1000;
+  const istTime = new Date(d.getTime() + istOffset);
+  const hours = istTime.getUTCHours();
+  const minutes = istTime.getUTCMinutes().toString().padStart(2, '0');
+  const seconds = istTime.getUTCSeconds().toString().padStart(2, '0');
+  const ampm = hours >= 12 ? 'PM' : 'AM';
+  const hours12 = hours % 12 || 12;
+  return `${hours12}:${minutes}:${seconds} ${ampm} IST`;
+}
+
+function roleIcon(role) {
+  switch (role) {
+    case 'user': return '👤';
+    case 'assistant': return '🤖';
+    case 'system': return '⚙️';
+    case 'tool': return '🔧';
+    default: return '📝';
+  }
+}
+
+function escapeHtml(str) {
+  if (!str) return '';
+  return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+function syntaxHighlight(json) {
+  if (typeof json !== 'string') json = JSON.stringify(json, null, 2);
+  return escapeHtml(json).replace(
+    /("(\\u[a-zA-Z0-9]{4}|\\[^u]|[^\\"])*"(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d*)?(?:[eE][+\-]?\d+)?)/g,
+    match => {
+      let cls = 'json-number';
+      if (/^"/.test(match)) {
+        cls = /:$/.test(match) ? 'json-key' : 'json-string';
+      } else if (/true|false/.test(match)) {
+        cls = 'json-bool';
+      } else if (/null/.test(match)) {
+        cls = 'json-null';
+      }
+      return `<span class="${cls}">${match}</span>`;
+    }
+  );
+}
+
+function showToast(msg) {
+  const toast = document.getElementById('toast');
+  toast.textContent = msg;
+  toast.classList.add('show');
+  setTimeout(() => toast.classList.remove('show'), 2000);
+}
+
+// ── Auto-load from URL params ──
+const params = new URLSearchParams(window.location.search);
+const srcParam = params.get('src');
+if (srcParam) {
+  fetch(srcParam).then(r => r.json()).then(data => {
+    if (Array.isArray(data)) data.forEach(item => addTrace(item));
+    else addTrace(data);
+  }).catch(() => {});
+}
+
+// ── Live Mode ──
+let liveMode = false;
+let evtSource = null;
+
+function toggleLiveMode() {
+  liveMode = !liveMode;
+  const btn = document.getElementById('liveBtn');
+  if (liveMode) {
+    btn.textContent = '⏸ Live';
+    btn.classList.remove('primary');
+    btn.classList.add('live-active');
+    connectLive();
+  } else {
+    btn.textContent = '▶ Live';
+    btn.classList.remove('live-active');
+    btn.classList.remove('primary');
+    disconnectLive();
+  }
+}
+
+function connectLive() {
+  if (evtSource) evtSource.close();
+  const baseUrl = window.location.origin;
+  evtSource = new EventSource(`${baseUrl}/events`);
+  evtSource.onmessage = (e) => {
+    const msg = JSON.parse(e.data);
+    if (msg.type === 'connected') {
+      showToast(`Connected — ${msg.traceCount} existing traces`);
+    } else if (msg.type === 'trace') {
+      // Check if we already have this trace (by sessionId)
+      const existing = traces.find(t => t.sessionId === msg.data.id);
+      if (existing) {
+        // Update response if we got one
+        if (msg.data.response && !existing.response) {
+          existing.response = msg.data.response;
+          renderTraces();
+          showToast(`Updated trace #${existing.id} with response`);
+        }
+      } else {
+        addTrace(msg.data);
+        showToast(`New trace: ${msg.data.method} ${shortenUrl(msg.data.url || '')}`);
+      }
+    }
+  };
+  evtSource.onerror = () => {
+    console.log('[live] Connection lost, reconnecting...');
+    setTimeout(() => { if (liveMode) connectLive(); }, 2000);
+  };
+}
+
+function disconnectLive() {
+  if (evtSource) { evtSource.close(); evtSource = null; }
+}
+</script>
+</body>
+</html>

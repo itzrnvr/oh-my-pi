@@ -69,6 +69,63 @@ function refreshStatusLine(ctx: InteractiveModeContext): void {
 	ctx.ui.requestRender();
 }
 
+// ── API Trace Viewer ──
+let activeTraceServer: { stop: () => void; port: number } | undefined;
+
+async function launchTraceViewer(port: number): Promise<string> {
+	const { spawn } = await import("node:child_process");
+	const fs = await import("node:fs/promises");
+	const path = await import("node:path");
+
+	// Find the tools directory relative to this file's location
+	// builtin-registry.ts is at packages/coding-agent/src/slash-commands/
+	// tools/ is at the repo root, so go up 4 levels
+	const repoRoot = path.resolve(import.meta.dir, "../../../../");
+	const toolsDir = path.join(repoRoot, "tools");
+	const viewerPath = path.join(toolsDir, "api-trace-viewer.html");
+	const serverPath = path.join(toolsDir, "trace-server.ts");
+
+	// Check if viewer exists
+	try {
+		await fs.access(viewerPath);
+	} catch {
+		return `Trace viewer not found at ${viewerPath}\nExpected at: ${repoRoot}/tools/`;
+	}
+
+	// Start trace server if not already running
+	if (!activeTraceServer) {
+		const server = spawn("bun", [serverPath, String(port), process.cwd()], {
+			cwd: toolsDir,
+			stdio: "ignore",
+			detached: true,
+			shell: true,
+		});
+		server.unref();
+		activeTraceServer = {
+			stop: () => server.kill(),
+			port,
+		};
+
+		// Wait a moment for server to start
+		await new Promise(resolve => setTimeout(resolve, 500));
+	}
+
+	// Open browser
+	const openUtils = await import("../utils/open");
+	openUtils.openPath(`http://localhost:${port}`);
+
+	return [
+		`API Trace Viewer running at http://localhost:${port}`,
+		"",
+		"To capture traces, restart omp with:",
+		"  PI_REQ_DEBUG=1 ompd",
+		"",
+		"Then use omp normally — traces appear in real-time.",
+		"",
+		"Or use /debug dump-next-request to capture a single request.",
+	].join("\n");
+}
+
 /** `/fast status` label: "off", "on", or scope-qualified "on (… only)". */
 function formatFastModeStatus(session: AgentSession): string {
 	if (!session.isFastModeEnabled()) return "off";
@@ -1024,6 +1081,22 @@ const BUILTIN_SLASH_COMMAND_REGISTRY: ReadonlyArray<SlashCommandSpec> = [
 				await runtime.output(result.message);
 			} catch (error) {
 				await runtime.output(`Stats dashboard failed: ${errorMessage(error)}`);
+			}
+			return commandConsumed();
+		},
+	},
+	{
+		name: "trace",
+		description: "Open the API trace viewer (shows exact requests sent to providers)",
+		allowArgs: true,
+		handle: async (command, runtime) => {
+			const port = Number.parseInt(command.args.trim(), 10) || 7777;
+			await runtime.output("Starting API trace server...");
+			try {
+				const result = await launchTraceViewer(port);
+				await runtime.output(result);
+			} catch (error) {
+				await runtime.output(`Trace viewer failed: ${errorMessage(error)}`);
 			}
 			return commandConsumed();
 		},
